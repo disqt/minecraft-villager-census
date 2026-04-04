@@ -47,7 +47,7 @@ All stdlib -- no pip dependencies except optional `lz4` for MC 1.20.5+ chunks.
 
 ## VPS Deployment
 
-- Census runs on cron at `/home/dev/villager-census/` on the VPS
+- Census runs on cron at `/home/dev/minecraft-villager-census/` on the VPS
 - SQLite DB served by nginx at `disqt.com/minecraft/villagers/census.db`
 - Frontend viewer lives in `disqt/minecraft-frontend` (Astro app at `disqt.com/minecraft/villagers/`)
 
