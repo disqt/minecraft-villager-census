@@ -1,0 +1,23 @@
+# Zone configurations for villager census.
+#
+# A "place" is a named location with one or more zones.
+# Each zone is either:
+#   - A rectangle: corners = [[x_min, z_min], [x_max, z_max]]
+#   - A circle: center = [x, z], radius = N
+#
+# poi_regions lists the (rx, rz) region file coords to download for bed data.
+
+[places.piwigord]
+poi_regions = [[5, -3], [5, -2], [6, -3], [6, -2]]
+
+[[places.piwigord.zones]]
+name = "north-village"
+corners = [[3090, -1040], [3220, -980]]
+
+[[places.piwigord.zones]]
+name = "old-city"
+corners = [[3090, -980], [3220, -890]]
+
+[[places.piwigord.zones]]
+name = "farm"
+corners = [[3090, -890], [3220, -826]]
