@@ -220,6 +220,32 @@ def test_migrate_adds_entity_mtimes_column():
     conn.close()
 
 
+def test_migrate_adds_death_cause_column(tmp_path):
+    """Existing DB without death_cause gets the column added."""
+    db_path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE villagers (
+            uuid TEXT PRIMARY KEY,
+            first_seen_snapshot INTEGER,
+            last_seen_snapshot INTEGER,
+            spawn_reason TEXT,
+            origin_x REAL, origin_y REAL, origin_z REAL,
+            presumed_dead INTEGER DEFAULT 0,
+            death_snapshot INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    from census_db import init_db
+    conn = init_db(db_path)
+    cur = conn.execute("PRAGMA table_info(villagers)")
+    cols = {row[1] for row in cur.fetchall()}
+    assert "death_cause" in cols
+    conn.close()
+
+
 def test_new_rows_can_use_zone_after_migration():
     """After migration, new inserts can set the zone column."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:

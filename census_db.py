@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS villagers (
     origin_y            REAL,
     origin_z            REAL,
     presumed_dead       INTEGER NOT NULL DEFAULT 0,
-    death_snapshot      INTEGER REFERENCES snapshots(id)
+    death_snapshot      INTEGER REFERENCES snapshots(id),
+    death_cause         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS villager_states (
@@ -141,6 +142,23 @@ CREATE TABLE IF NOT EXISTS bells (
     zone            TEXT,
     UNIQUE(snapshot_id, pos_x, pos_y, pos_z)
 );
+
+CREATE TABLE IF NOT EXISTS villager_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type   TEXT NOT NULL,
+    timestamp    TEXT NOT NULL,
+    uuid         TEXT NOT NULL,
+    parent1_uuid TEXT,
+    parent2_uuid TEXT,
+    cause        TEXT,
+    killer       TEXT,
+    message      TEXT,
+    pos_x        REAL,
+    pos_y        REAL,
+    pos_z        REAL,
+    ticks_lived  INTEGER,
+    snapshot_id  INTEGER REFERENCES snapshots(id)
+);
 """
 
 
@@ -182,6 +200,11 @@ def _migrate(conn):
         conn.execute("ALTER TABLE snapshots ADD COLUMN zones_skipped TEXT")
     if "bell_count" not in cols:
         conn.execute("ALTER TABLE snapshots ADD COLUMN bell_count INTEGER NOT NULL DEFAULT 0")
+
+    cur = conn.execute("PRAGMA table_info(villagers)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "death_cause" not in cols:
+        conn.execute("ALTER TABLE villagers ADD COLUMN death_cause TEXT")
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +383,28 @@ def insert_bell(conn, *, snapshot_id, pos_x, pos_y, pos_z, free_tickets,
     return cur.lastrowid
 
 
+def insert_villager_event(conn, *, event_type, timestamp, uuid,
+                          parent1_uuid=None, parent2_uuid=None,
+                          cause=None, killer=None, message=None,
+                          pos_x=None, pos_y=None, pos_z=None,
+                          ticks_lived=None, snapshot_id=None):
+    """Insert a villager event (breed or death)."""
+    cur = conn.execute(
+        """
+        INSERT INTO villager_events
+            (event_type, timestamp, uuid, parent1_uuid, parent2_uuid,
+             cause, killer, message, pos_x, pos_y, pos_z, ticks_lived,
+             snapshot_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (event_type, timestamp, uuid, parent1_uuid, parent2_uuid,
+         cause, killer, message, pos_x, pos_y, pos_z, ticks_lived,
+         snapshot_id),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
 # ---------------------------------------------------------------------------
 # Query helpers
 # ---------------------------------------------------------------------------
@@ -378,17 +423,50 @@ def get_latest_snapshot(conn):
     return _row_to_dict(cur.fetchone())
 
 
-def mark_dead(conn, uuid, death_snapshot):
-    """Set presumed_dead=1 and record death_snapshot for a villager."""
+def mark_dead(conn, uuid, death_snapshot, death_cause=None):
+    """Set presumed_dead=1 and record death_snapshot and optional death_cause."""
     conn.execute(
         """
         UPDATE villagers
-        SET presumed_dead = 1, death_snapshot = ?
+        SET presumed_dead = 1, death_snapshot = ?, death_cause = ?
         WHERE uuid = ?
         """,
-        (death_snapshot, uuid),
+        (death_snapshot, death_cause, uuid),
     )
     conn.commit()
+
+
+def backfill_death_causes(conn, log_deaths):
+    """Update dead villagers that have no death_cause with log-parsed messages.
+
+    log_deaths: list of dicts from parse_death_log, each with 'uuid' and 'message'.
+    Returns the number of villagers updated.
+    """
+    cause_map = {d["uuid"]: d["message"] for d in log_deaths}
+    cur = conn.execute(
+        "SELECT uuid FROM villagers WHERE presumed_dead = 1 AND death_cause IS NULL"
+    )
+    missing = [row["uuid"] for row in cur.fetchall()]
+    updated = 0
+    for uuid in missing:
+        if uuid in cause_map:
+            conn.execute(
+                "UPDATE villagers SET death_cause = ? WHERE uuid = ?",
+                (cause_map[uuid], uuid),
+            )
+            updated += 1
+    if updated:
+        conn.commit()
+    return updated
+
+
+def get_villager_events_for_snapshot(conn, snapshot_id):
+    """Return all villager events for a given snapshot."""
+    cur = conn.execute(
+        "SELECT * FROM villager_events WHERE snapshot_id = ?",
+        (snapshot_id,),
+    )
+    return [dict(row) for row in cur.fetchall()]
 
 
 def get_snapshot_villager_uuids(conn, snapshot_id):

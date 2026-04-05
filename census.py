@@ -15,6 +15,7 @@ from census_collect import (
     get_entity_mtimes,
     get_poi_files,
     get_player_position,
+    get_villager_events,
     save_all,
 )
 from census_db import (
@@ -30,6 +31,7 @@ from census_db import (
     insert_snapshot,
     insert_trade,
     insert_villager,
+    insert_villager_event,
     insert_villager_state,
     mark_dead,
 )
@@ -276,8 +278,45 @@ def run_census(*, db_path, zones, poi_regions, notes=None, skipped_zones=None):
     deaths_uuids = prev_uuids - current_uuids
     births_uuids = current_uuids - prev_uuids
 
+    # Step 10a: ingest plugin events
+    plugin_events = get_villager_events()
+    death_causes = {}
+    for event in plugin_events:
+        evt_type = event.get("type")
+        if evt_type == "death":
+            uuid = event.get("uuid", "")
+            insert_villager_event(
+                conn,
+                event_type="death",
+                timestamp=event.get("timestamp", ""),
+                uuid=uuid,
+                cause=event.get("cause"),
+                killer=event.get("killer"),
+                message=event.get("message"),
+                pos_x=event.get("x"),
+                pos_y=event.get("y"),
+                pos_z=event.get("z"),
+                ticks_lived=event.get("ticks_lived"),
+                snapshot_id=snapshot_id,
+            )
+            death_causes[uuid] = event.get("cause")
+        elif evt_type == "breed":
+            insert_villager_event(
+                conn,
+                event_type="breed",
+                timestamp=event.get("timestamp", ""),
+                uuid=event.get("child_uuid", ""),
+                parent1_uuid=event.get("parent1_uuid"),
+                parent2_uuid=event.get("parent2_uuid"),
+                pos_x=event.get("x"),
+                pos_y=event.get("y"),
+                pos_z=event.get("z"),
+                snapshot_id=snapshot_id,
+            )
+
     for uuid in deaths_uuids:
-        mark_dead(conn, uuid, snapshot_id)
+        cause = death_causes.get(uuid)
+        mark_dead(conn, uuid, snapshot_id, death_cause=cause)
 
     # Step 11: compute homeless count
     homeless = sum(
@@ -427,6 +466,8 @@ def main():
     parser.add_argument("--install", nargs="?", const="30", metavar="MINUTES",
                         help="Install cron job (default: every 30 min)")
     parser.add_argument("--uninstall", action="store_true", help="Remove cron job")
+    parser.add_argument("--backfill-death-causes", action="store_true",
+                        help="Backfill death causes from server logs for existing dead villagers")
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--config", help="Path to zones.toml config file")
@@ -447,6 +488,17 @@ def main():
         return
     if args.uninstall:
         _uninstall_cron()
+        return
+
+    if args.backfill_death_causes:
+        from census_collect import get_recent_deaths
+        from census_db import backfill_death_causes
+        configure_transport(ssh_host=args.ssh)
+        conn = init_db(args.db)
+        log_deaths = get_recent_deaths(since_lines=5000)
+        updated = backfill_death_causes(conn, log_deaths)
+        conn.close()
+        print(f"Backfilled {updated} death cause(s) from server logs ({len(log_deaths)} death entries found)")
         return
 
     configure_transport(ssh_host=args.ssh)

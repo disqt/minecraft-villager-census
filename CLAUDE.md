@@ -15,7 +15,8 @@ census_seed.py         # Historical data seeder from server logs
 census_zones.py        # Zone geometry (rect/circle), classification
 zones.toml             # Zone definitions (places + named zones)
 skills/SKILL.md        # Claude Code skill definition
-tests/                 # 62 tests, all stdlib (no pip deps)
+tests/                 # 135 tests, all stdlib (no pip deps)
+VillagerCensusEvents/  # PaperMC plugin — villager breed/death event logger (Java/Gradle)
 ```
 
 ## Usage

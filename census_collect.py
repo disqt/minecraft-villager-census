@@ -1,5 +1,6 @@
 """census_collect.py — Data collection from PaperMC server (local or SSH)."""
 
+import json
 import os
 import re
 import subprocess
@@ -236,6 +237,35 @@ _DEATH_PATTERN = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Plugin event ingestion
+# ---------------------------------------------------------------------------
+
+EVENTS_FILE = "/home/minecraft/serverfiles/plugins/VillagerCensusEvents/events.jsonl"
+
+
+def get_villager_events():
+    """Read villager events from the plugin's JSONL file and truncate it.
+
+    Returns a list of event dicts. Truncates the file after reading so
+    events are not re-ingested on the next run. Malformed lines are skipped.
+    """
+    lines = _run_command(f"cat {EVENTS_FILE} 2>/dev/null")
+    events = []
+    for line in lines:
+        line = line.strip()
+        if line:
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+
+    if events:
+        _run_command(f": > {EVENTS_FILE}")
+
+    return events
+
+
 def parse_death_log(line):
     """Parse a villager death log line.
 
@@ -253,3 +283,17 @@ def parse_death_log(line):
         "ticks_lived": int(m.group(5)),
         "message": m.group(6),
     }
+
+
+def get_recent_deaths(since_lines=500):
+    """Tail the server log and extract villager death entries.
+
+    Returns a list of dicts: {uuid, x, y, z, ticks_lived, message}
+    """
+    lines = _run_command(f"tail -n {since_lines} {LOG_PATH}")
+    deaths = []
+    for line in lines:
+        parsed = parse_death_log(line)
+        if parsed:
+            deaths.append(parsed)
+    return deaths

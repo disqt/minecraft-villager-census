@@ -10,14 +10,17 @@ from census_db import (
     insert_gossip,
     insert_bed,
     insert_bell,
+    insert_villager_event,
     get_villager,
     get_latest_snapshot,
     mark_dead,
     get_snapshot_villager_uuids,
     get_all_snapshots,
     get_villager_history,
+    get_villager_events_for_snapshot,
     export_snapshot_json,
     export_all_json,
+    backfill_death_causes,
 )
 
 
@@ -108,8 +111,18 @@ def test_init_db_creates_all_tables(tmp_path):
         "villager_inventory",
         "villager_gossip",
         "beds",
+        "villager_events",
     }
     assert expected <= tables
+
+
+def test_init_db_creates_villager_events_table(tmp_path):
+    conn = init_db(tmp_path / "test.db")
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='villager_events'"
+    )
+    assert cursor.fetchone() is not None
+    conn.close()
 
 
 def test_insert_snapshot(tmp_path):
@@ -361,3 +374,128 @@ def test_export_all_json(tmp_path):
     result = export_all_json(conn)
     assert len(result["snapshots"]) == 2
     assert "villagers" in result
+
+
+def test_insert_villager_event_death(tmp_path):
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    insert_villager_event(
+        conn,
+        event_type="death",
+        timestamp="2026-04-05T12:35:10Z",
+        uuid="dead-1111",
+        cause="FALL",
+        killer=None,
+        message="Villager hit the ground too hard",
+        pos_x=3145.0,
+        pos_y=63.0,
+        pos_z=-965.0,
+        ticks_lived=48000,
+        snapshot_id=snap_id,
+    )
+    events = get_villager_events_for_snapshot(conn, snap_id)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "death"
+    assert events[0]["uuid"] == "dead-1111"
+    assert events[0]["cause"] == "FALL"
+    assert events[0]["ticks_lived"] == 48000
+    conn.close()
+
+
+def test_insert_villager_event_breed(tmp_path):
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    insert_villager_event(
+        conn,
+        event_type="breed",
+        timestamp="2026-04-05T12:34:56Z",
+        uuid="child-1111",
+        parent1_uuid="parent-aaaa",
+        parent2_uuid="parent-bbbb",
+        pos_x=3150.5,
+        pos_y=64.0,
+        pos_z=-950.2,
+        snapshot_id=snap_id,
+    )
+    events = get_villager_events_for_snapshot(conn, snap_id)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "breed"
+    assert events[0]["parent1_uuid"] == "parent-aaaa"
+    assert events[0]["parent2_uuid"] == "parent-bbbb"
+    conn.close()
+
+
+def test_mark_dead_with_death_cause(tmp_path):
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="dead-2222")
+    mark_dead(conn, "dead-2222", snap_id, death_cause="ENTITY_ATTACK")
+    v = get_villager(conn, "dead-2222")
+    assert v["presumed_dead"] == 1
+    assert v["death_cause"] == "ENTITY_ATTACK"
+    conn.close()
+
+
+def test_mark_dead_without_death_cause(tmp_path):
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="dead-3333")
+    mark_dead(conn, "dead-3333", snap_id)
+    v = get_villager(conn, "dead-3333")
+    assert v["presumed_dead"] == 1
+    assert v["death_cause"] is None
+    conn.close()
+
+
+def test_backfill_death_causes(tmp_path):
+    """backfill_death_causes updates dead villagers with matching log deaths."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+
+    # Two dead villagers, no death cause
+    make_villager(conn, snap_id, uuid="dead-aaaa")
+    mark_dead(conn, "dead-aaaa", snap_id)
+    make_villager(conn, snap_id, uuid="dead-bbbb")
+    mark_dead(conn, "dead-bbbb", snap_id)
+    # One alive villager (should not be touched)
+    make_villager(conn, snap_id, uuid="alive-cccc")
+
+    log_deaths = [
+        {"uuid": "dead-aaaa", "x": 0, "y": 0, "z": 0, "ticks_lived": 100,
+         "message": "Villager was slain by Zombie"},
+        {"uuid": "unknown-dddd", "x": 0, "y": 0, "z": 0, "ticks_lived": 200,
+         "message": "Villager drowned"},
+    ]
+
+    updated = backfill_death_causes(conn, log_deaths)
+    assert updated == 1  # only dead-aaaa matched
+
+    v1 = get_villager(conn, "dead-aaaa")
+    assert v1["death_cause"] == "Villager was slain by Zombie"
+
+    v2 = get_villager(conn, "dead-bbbb")
+    assert v2["death_cause"] is None  # no matching log entry
+
+    v3 = get_villager(conn, "alive-cccc")
+    assert v3["presumed_dead"] == 0
+    conn.close()
+
+
+def test_backfill_death_causes_skips_already_filled(tmp_path):
+    """backfill_death_causes does not overwrite existing death causes."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="dead-eeee")
+    mark_dead(conn, "dead-eeee", snap_id, death_cause="FALL")
+
+    log_deaths = [
+        {"uuid": "dead-eeee", "x": 0, "y": 0, "z": 0, "ticks_lived": 100,
+         "message": "Villager hit the ground too hard"},
+    ]
+
+    updated = backfill_death_causes(conn, log_deaths)
+    assert updated == 0  # already has a cause
+
+    v = get_villager(conn, "dead-eeee")
+    assert v["death_cause"] == "FALL"  # unchanged
+    conn.close()
