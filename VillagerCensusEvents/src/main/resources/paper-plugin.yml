@@ -1,0 +1,5 @@
+name: VillagerCensusEvents
+version: 1.0.0
+main: com.disqt.census.events.VillagerCensusEventsPlugin
+description: Tracks villager breeding and death events for census analytics
+api-version: '1.21'
