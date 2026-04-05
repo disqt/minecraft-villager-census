@@ -27,7 +27,8 @@ TEST_ZONES = [make_single_zone(center_x=3150, center_z=-950, radius=300, name="t
 TEST_POI_REGIONS = [(5, -3), (5, -2), (6, -3), (6, -2)]
 
 
-def _run_with_mocks(db_path, *, villagers=None, beds=None, players=None, zones=None):
+def _run_with_mocks(db_path, *, villagers=None, beds=None, players=None,
+                    zones=None, plugin_events=None):
     """Helper to run census with standard mocks."""
     if villagers is None:
         from census_parse import parse_entity_line
@@ -38,6 +39,8 @@ def _run_with_mocks(db_path, *, villagers=None, beds=None, players=None, zones=N
         players = []
     if zones is None:
         zones = TEST_ZONES
+    if plugin_events is None:
+        plugin_events = []
 
     with (
         patch("census.check_players_online", return_value=players),
@@ -45,6 +48,7 @@ def _run_with_mocks(db_path, *, villagers=None, beds=None, players=None, zones=N
         patch("census.parse_entity_regions", return_value=villagers),
         patch("census.get_poi_files", return_value=[]),
         patch("census.parse_poi_regions", return_value=beds),
+        patch("census.get_villager_events", return_value=plugin_events),
     ):
         return census.run_census(
             db_path=db_path,
@@ -222,4 +226,87 @@ def test_run_census_stores_coverage():
                         (summary["snapshot_id"],)).fetchone()
     assert json.loads(snap["zones_scanned"]) == ["active"]
     assert json.loads(snap["zones_skipped"]) == ["inactive-a", "inactive-b"]
+    conn.close()
+
+
+def test_run_census_ingests_villager_events():
+    """Plugin events are ingested and stored in villager_events table."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    sample_events = [
+        {"type": "death", "timestamp": "2026-04-05T12:35:10Z",
+         "uuid": "dead-uuid", "cause": "FALL", "killer": None,
+         "x": 3145.0, "y": 63.0, "z": -965.0, "ticks_lived": 48000,
+         "message": "Villager hit the ground too hard"},
+        {"type": "breed", "timestamp": "2026-04-05T12:34:56Z",
+         "child_uuid": "child-uuid", "parent1_uuid": "p1-uuid",
+         "parent2_uuid": "p2-uuid", "x": 3150.5, "y": 64.0, "z": -950.2},
+    ]
+
+    with (
+        patch("census.check_players_online", return_value=[]),
+        patch("census.get_entity_files", return_value=[]),
+        patch("census.parse_entity_regions", return_value=[]),
+        patch("census.get_poi_files", return_value=[]),
+        patch("census.parse_poi_regions", return_value=[]),
+        patch("census.get_villager_events", return_value=sample_events),
+    ):
+        summary = census.run_census(
+            db_path=db_path,
+            zones=TEST_ZONES,
+            poi_regions=TEST_POI_REGIONS,
+        )
+
+    conn = init_db(db_path)
+    cur = conn.execute("SELECT * FROM villager_events WHERE snapshot_id = ?",
+                       (summary["snapshot_id"],))
+    events = [dict(r) for r in cur.fetchall()]
+    assert len(events) == 2
+    death = next(e for e in events if e["event_type"] == "death")
+    assert death["uuid"] == "dead-uuid"
+    assert death["cause"] == "FALL"
+    breed = next(e for e in events if e["event_type"] == "breed")
+    assert breed["uuid"] == "child-uuid"
+    assert breed["parent1_uuid"] == "p1-uuid"
+    conn.close()
+
+
+def test_run_census_uses_plugin_death_cause():
+    """Death cause from plugin events is passed to mark_dead."""
+    from census_parse import parse_entity_line
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    villager = parse_entity_line(SAMPLE_ENTITY_LINE)
+    villager_uuid = villager["uuid"]
+
+    # First run: villager is alive
+    _run_with_mocks(db_path, villagers=[villager])
+
+    # Second run: villager gone, plugin reports death cause
+    death_events = [
+        {"type": "death", "timestamp": "2026-04-05T12:35:10Z",
+         "uuid": villager_uuid, "cause": "DROWNING", "killer": None,
+         "x": 0, "y": 0, "z": 0, "ticks_lived": 1000, "message": "drowned"},
+    ]
+
+    with (
+        patch("census.check_players_online", return_value=[]),
+        patch("census.get_entity_files", return_value=[]),
+        patch("census.parse_entity_regions", return_value=[]),
+        patch("census.get_poi_files", return_value=[]),
+        patch("census.parse_poi_regions", return_value=[]),
+        patch("census.get_villager_events", return_value=death_events),
+    ):
+        census.run_census(
+            db_path=db_path,
+            zones=TEST_ZONES,
+            poi_regions=TEST_POI_REGIONS,
+        )
+
+    conn = init_db(db_path)
+    v = conn.execute("SELECT death_cause FROM villagers WHERE uuid = ?",
+                     (villager_uuid,)).fetchone()
+    assert v["death_cause"] == "DROWNING"
     conn.close()
