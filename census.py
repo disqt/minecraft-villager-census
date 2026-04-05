@@ -466,6 +466,8 @@ def main():
     parser.add_argument("--install", nargs="?", const="30", metavar="MINUTES",
                         help="Install cron job (default: every 30 min)")
     parser.add_argument("--uninstall", action="store_true", help="Remove cron job")
+    parser.add_argument("--backfill-death-causes", action="store_true",
+                        help="Backfill death causes from server logs for existing dead villagers")
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--config", help="Path to zones.toml config file")
@@ -486,6 +488,17 @@ def main():
         return
     if args.uninstall:
         _uninstall_cron()
+        return
+
+    if args.backfill_death_causes:
+        from census_collect import get_recent_deaths
+        from census_db import backfill_death_causes
+        configure_transport(ssh_host=args.ssh)
+        conn = init_db(args.db)
+        log_deaths = get_recent_deaths(since_lines=5000)
+        updated = backfill_death_causes(conn, log_deaths)
+        conn.close()
+        print(f"Backfilled {updated} death cause(s) from server logs ({len(log_deaths)} death entries found)")
         return
 
     configure_transport(ssh_host=args.ssh)

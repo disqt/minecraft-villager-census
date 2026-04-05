@@ -20,6 +20,7 @@ from census_db import (
     get_villager_events_for_snapshot,
     export_snapshot_json,
     export_all_json,
+    backfill_death_causes,
 )
 
 
@@ -443,4 +444,58 @@ def test_mark_dead_without_death_cause(tmp_path):
     v = get_villager(conn, "dead-3333")
     assert v["presumed_dead"] == 1
     assert v["death_cause"] is None
+    conn.close()
+
+
+def test_backfill_death_causes(tmp_path):
+    """backfill_death_causes updates dead villagers with matching log deaths."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+
+    # Two dead villagers, no death cause
+    make_villager(conn, snap_id, uuid="dead-aaaa")
+    mark_dead(conn, "dead-aaaa", snap_id)
+    make_villager(conn, snap_id, uuid="dead-bbbb")
+    mark_dead(conn, "dead-bbbb", snap_id)
+    # One alive villager (should not be touched)
+    make_villager(conn, snap_id, uuid="alive-cccc")
+
+    log_deaths = [
+        {"uuid": "dead-aaaa", "x": 0, "y": 0, "z": 0, "ticks_lived": 100,
+         "message": "Villager was slain by Zombie"},
+        {"uuid": "unknown-dddd", "x": 0, "y": 0, "z": 0, "ticks_lived": 200,
+         "message": "Villager drowned"},
+    ]
+
+    updated = backfill_death_causes(conn, log_deaths)
+    assert updated == 1  # only dead-aaaa matched
+
+    v1 = get_villager(conn, "dead-aaaa")
+    assert v1["death_cause"] == "Villager was slain by Zombie"
+
+    v2 = get_villager(conn, "dead-bbbb")
+    assert v2["death_cause"] is None  # no matching log entry
+
+    v3 = get_villager(conn, "alive-cccc")
+    assert v3["presumed_dead"] == 0
+    conn.close()
+
+
+def test_backfill_death_causes_skips_already_filled(tmp_path):
+    """backfill_death_causes does not overwrite existing death causes."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="dead-eeee")
+    mark_dead(conn, "dead-eeee", snap_id, death_cause="FALL")
+
+    log_deaths = [
+        {"uuid": "dead-eeee", "x": 0, "y": 0, "z": 0, "ticks_lived": 100,
+         "message": "Villager hit the ground too hard"},
+    ]
+
+    updated = backfill_death_causes(conn, log_deaths)
+    assert updated == 0  # already has a cause
+
+    v = get_villager(conn, "dead-eeee")
+    assert v["death_cause"] == "FALL"  # unchanged
     conn.close()

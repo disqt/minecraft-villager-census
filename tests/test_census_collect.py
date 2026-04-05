@@ -237,3 +237,29 @@ def test_get_villager_events_skips_blank_lines(monkeypatch):
     monkeypatch.setattr("census_collect._run_command", lambda cmd: lines)
     events = get_villager_events()
     assert len(events) == 1
+
+
+# --- get_recent_deaths ---
+
+from census_collect import get_recent_deaths
+
+
+def test_get_recent_deaths_parses_log(monkeypatch):
+    """get_recent_deaths extracts villager death entries from log tail."""
+    log_lines = [
+        "[19:44:53] [Server thread/INFO]: Some unrelated log line",
+        "[19:45:01] [Server thread/INFO]: Villager[Fisherman, uuid='aaaa-1111-bbbb-2222', l='ServerLevel[world_new]', x=3145.0, y=63.0, z=-965.0, cpos=[196, -61], tl=48000, v=true] died, message: 'Villager was slain by Drowned'",
+        "[19:45:02] [Server thread/INFO]: Another unrelated line",
+    ]
+    monkeypatch.setattr("census_collect._run_command", lambda cmd: log_lines)
+    deaths = get_recent_deaths()
+    assert len(deaths) == 1
+    assert deaths[0]["uuid"] == "aaaa-1111-bbbb-2222"
+    assert deaths[0]["message"] == "Villager was slain by Drowned"
+
+
+def test_get_recent_deaths_empty_log(monkeypatch):
+    """get_recent_deaths returns empty list when no death lines found."""
+    monkeypatch.setattr("census_collect._run_command", lambda cmd: ["[INFO]: Server started"])
+    deaths = get_recent_deaths()
+    assert deaths == []

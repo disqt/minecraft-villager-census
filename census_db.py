@@ -436,6 +436,30 @@ def mark_dead(conn, uuid, death_snapshot, death_cause=None):
     conn.commit()
 
 
+def backfill_death_causes(conn, log_deaths):
+    """Update dead villagers that have no death_cause with log-parsed messages.
+
+    log_deaths: list of dicts from parse_death_log, each with 'uuid' and 'message'.
+    Returns the number of villagers updated.
+    """
+    cause_map = {d["uuid"]: d["message"] for d in log_deaths}
+    cur = conn.execute(
+        "SELECT uuid FROM villagers WHERE presumed_dead = 1 AND death_cause IS NULL"
+    )
+    missing = [row["uuid"] for row in cur.fetchall()]
+    updated = 0
+    for uuid in missing:
+        if uuid in cause_map:
+            conn.execute(
+                "UPDATE villagers SET death_cause = ? WHERE uuid = ?",
+                (cause_map[uuid], uuid),
+            )
+            updated += 1
+    if updated:
+        conn.commit()
+    return updated
+
+
 def get_villager_events_for_snapshot(conn, snapshot_id):
     """Return all villager events for a given snapshot."""
     cur = conn.execute(

@@ -281,3 +281,17 @@ def parse_death_log(line):
         "ticks_lived": int(m.group(5)),
         "message": m.group(6),
     }
+
+
+def get_recent_deaths(since_lines=500):
+    """Tail the server log and extract villager death entries.
+
+    Returns a list of dicts: {uuid, x, y, z, ticks_lived, message}
+    """
+    lines = _run_command(f"tail -n {since_lines} {LOG_PATH}")
+    deaths = []
+    for line in lines:
+        parsed = parse_death_log(line)
+        if parsed:
+            deaths.append(parsed)
+    return deaths
