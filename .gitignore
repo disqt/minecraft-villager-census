@@ -3,3 +3,7 @@ __pycache__/
 census.db
 .coverage
 /tmp/
+
+# Gradle build artifacts
+VillagerCensusEvents/build/
+VillagerCensusEvents/.gradle/
