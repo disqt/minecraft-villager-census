@@ -60,20 +60,13 @@ public final class VillagerEventListener implements Listener {
 
         String timestamp = ISO_FMT.format(Instant.now());
 
-        // Get death message -- Paper provides this via the event
-        String message = event.deathMessage() != null
-                ? net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
-                    .plainText().serialize(event.deathMessage())
-                : "";
-
         String json = String.format(
             "{\"type\":\"death\",\"timestamp\":\"%s\","
             + "\"uuid\":\"%s\","
             + "\"cause\":\"%s\","
             + "\"killer\":%s,"
             + "\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,"
-            + "\"ticks_lived\":%d,"
-            + "\"message\":\"%s\"}",
+            + "\"ticks_lived\":%d}",
             timestamp,
             villager.getUniqueId(),
             cause,
@@ -81,8 +74,7 @@ public final class VillagerEventListener implements Listener {
             villager.getLocation().getX(),
             villager.getLocation().getY(),
             villager.getLocation().getZ(),
-            villager.getTicksLived(),
-            message.replace("\"", "\\\"")
+            villager.getTicksLived()
         );
 
         writer.append(json);
