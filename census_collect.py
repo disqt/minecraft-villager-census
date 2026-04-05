@@ -1,5 +1,6 @@
 """census_collect.py — Data collection from PaperMC server (local or SSH)."""
 
+import json
 import os
 import re
 import subprocess
@@ -247,16 +248,17 @@ def get_villager_events():
     """Read villager events from the plugin's JSONL file and truncate it.
 
     Returns a list of event dicts. Truncates the file after reading so
-    events are not re-ingested on the next run.
+    events are not re-ingested on the next run. Malformed lines are skipped.
     """
-    import json as _json
-
     lines = _run_command(f"cat {EVENTS_FILE} 2>/dev/null")
     events = []
     for line in lines:
         line = line.strip()
         if line:
-            events.append(_json.loads(line))
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
 
     if events:
         _run_command(f": > {EVENTS_FILE}")
