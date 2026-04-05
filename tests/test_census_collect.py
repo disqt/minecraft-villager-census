@@ -195,3 +195,45 @@ def test_entity_region_coords_circle():
     zones = [make_single_zone(center_x=3150, center_z=-950, radius=300)]
     result = entity_region_coords(zones)
     assert len(result) > 0
+
+
+# --- get_villager_events ---
+
+from census_collect import get_villager_events
+
+
+def test_get_villager_events_parses_jsonl(monkeypatch):
+    """get_villager_events reads JSONL lines and returns parsed dicts."""
+    sample_lines = [
+        '{"type":"breed","timestamp":"2026-04-05T12:34:56Z","child_uuid":"c-1","parent1_uuid":"p-1","parent2_uuid":"p-2","x":3150.5,"y":64.0,"z":-950.2}',
+        '{"type":"death","timestamp":"2026-04-05T12:35:10Z","uuid":"d-1","cause":"FALL","killer":null,"x":3145.0,"y":63.0,"z":-965.0,"ticks_lived":48000,"message":"Villager hit the ground too hard"}',
+    ]
+    monkeypatch.setattr("census_collect._run_command",
+                        lambda cmd: sample_lines if "cat" in cmd else [])
+
+    events = get_villager_events()
+    assert len(events) == 2
+    assert events[0]["type"] == "breed"
+    assert events[0]["child_uuid"] == "c-1"
+    assert events[1]["type"] == "death"
+    assert events[1]["cause"] == "FALL"
+    assert events[1]["ticks_lived"] == 48000
+
+
+def test_get_villager_events_empty_file(monkeypatch):
+    """get_villager_events returns empty list when file is empty or missing."""
+    monkeypatch.setattr("census_collect._run_command", lambda cmd: [])
+    events = get_villager_events()
+    assert events == []
+
+
+def test_get_villager_events_skips_blank_lines(monkeypatch):
+    """Blank lines in the JSONL file are silently skipped."""
+    lines = [
+        '{"type":"breed","timestamp":"2026-04-05T12:34:56Z","child_uuid":"c-1","parent1_uuid":"p-1","parent2_uuid":"p-2","x":0,"y":0,"z":0}',
+        '',
+        '   ',
+    ]
+    monkeypatch.setattr("census_collect._run_command", lambda cmd: lines)
+    events = get_villager_events()
+    assert len(events) == 1

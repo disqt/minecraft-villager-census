@@ -236,6 +236,34 @@ _DEATH_PATTERN = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Plugin event ingestion
+# ---------------------------------------------------------------------------
+
+EVENTS_FILE = "/home/minecraft/serverfiles/plugins/VillagerCensusEvents/events.jsonl"
+
+
+def get_villager_events():
+    """Read villager events from the plugin's JSONL file and truncate it.
+
+    Returns a list of event dicts. Truncates the file after reading so
+    events are not re-ingested on the next run.
+    """
+    import json as _json
+
+    lines = _run_command(f"cat {EVENTS_FILE} 2>/dev/null")
+    events = []
+    for line in lines:
+        line = line.strip()
+        if line:
+            events.append(_json.loads(line))
+
+    if events:
+        _run_command(f": > {EVENTS_FILE}")
+
+    return events
+
+
 def parse_death_log(line):
     """Parse a villager death log line.
 
