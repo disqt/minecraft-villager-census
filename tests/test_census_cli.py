@@ -44,6 +44,7 @@ MOCK_SUMMARY = {
     "bell_count": 1,
     "births": 2,
     "deaths": 1,
+    "missing": 0,
     "homeless": 3,
     "players_online": ["Termiduck"],
     "zones": {"center": {"villagers": 10, "beds": 8, "bells": 1}},
