@@ -1,0 +1,139 @@
+{
+  "Paper.SpawnReason": "BREEDING",
+  "DeathTime": 0,
+  "Bukkit.updateLevel": 2,
+  "RestocksToday": 0,
+  "Xp": 12,
+  "OnGround": 1,
+  "LeftHanded": 0,
+  "AbsorptionAmount": 0.0,
+  "FoodLevel": 0,
+  "LastRestock": 1030409884,
+  "AgeLocked": 0,
+  "Invulnerable": 0,
+  "Brain": {
+    "memories": {
+      "minecraft:home": {
+        "value": {
+          "pos": [3163, 69, -1036],
+          "dimension": "minecraft:overworld"
+        }
+      },
+      "minecraft:last_woken": {
+        "value": 1030406620
+      },
+      "minecraft:job_site": {
+        "value": {
+          "pos": [3140, 64, -1013],
+          "dimension": "minecraft:overworld"
+        }
+      },
+      "minecraft:last_slept": {
+        "value": 1030406163
+      },
+      "minecraft:last_worked_at_poi": {
+        "value": 1030409884
+      },
+      "minecraft:meeting_point": {
+        "value": {
+          "pos": [3141, 67, -1009],
+          "dimension": "minecraft:overworld"
+        }
+      },
+      "minecraft:golem_detected_recently": {
+        "ttl": 582,
+        "value": 1
+      }
+    }
+  },
+  "Paper.Origin": [3147.8345018798286, 65.0, -1013.1331194502959],
+  "Age": 0,
+  "Rotation": [180.53240966796875, -14.481622695922852],
+  "HurtByTimestamp": 0,
+  "Bukkit.Aware": 1,
+  "ForcedAge": 0,
+  "attributes": [
+    {
+      "base": 0.5,
+      "id": "minecraft:movement_speed"
+    },
+    {
+      "base": 16.0,
+      "id": "minecraft:follow_range",
+      "modifiers": [
+        {
+          "operation": "add_multiplied_base",
+          "amount": -0.02465953980489407,
+          "id": "minecraft:random_spawn_bonus"
+        }
+      ]
+    },
+    {
+      "base": 20.0,
+      "id": "minecraft:max_health"
+    }
+  ],
+  "WorldUUIDMost": -8821679170295479734,
+  "fall_distance": 0.0,
+  "Air": 300,
+  "Paper.OriginWorld": [-2053957240, -1408023990, -1113309832, -1718626039],
+  "Offers": {
+    "Recipes": [
+      {
+        "buy": {"id": "minecraft:emerald", "count": 1},
+        "sell": {"id": "minecraft:bread", "count": 6},
+        "demand": -7392,
+        "priceMultiplier": 0.05,
+        "maxUses": 16
+      },
+      {
+        "xp": 2,
+        "buy": {"id": "minecraft:potato", "count": 26},
+        "sell": {"id": "minecraft:emerald", "count": 1},
+        "demand": -7380,
+        "priceMultiplier": 0.05,
+        "maxUses": 16
+      },
+      {
+        "xp": 5,
+        "buy": {"id": "minecraft:emerald", "count": 1},
+        "sell": {"id": "minecraft:pumpkin_pie", "count": 4},
+        "demand": -4056,
+        "priceMultiplier": 0.05,
+        "maxUses": 12
+      },
+      {
+        "xp": 5,
+        "buy": {"id": "minecraft:emerald", "count": 1},
+        "sell": {"id": "minecraft:apple", "count": 4},
+        "demand": -5408,
+        "priceMultiplier": 0.05,
+        "maxUses": 16
+      }
+    ]
+  },
+  "UUID": [-115531875, -1877127260, -1469670995, 1620667857],
+  "Inventory": [
+    {"id": "minecraft:beetroot_seeds", "count": 10},
+    {"id": "minecraft:beetroot", "count": 8}
+  ],
+  "Spigot.ticksLived": 6828233,
+  "Gossips": [],
+  "VillagerData": {
+    "type": "minecraft:taiga",
+    "profession": "minecraft:farmer",
+    "level": 2
+  },
+  "Motion": [0.0, -0.0784000015258789, 0.0],
+  "WorldUUIDLeast": -4781629316178913015,
+  "id": "minecraft:villager",
+  "Pos": [3139.4963869784638, 64.0, -1014.3479036523759],
+  "Fire": 0,
+  "CanPickUpLoot": 1,
+  "Health": 19.0,
+  "HurtTime": 0,
+  "FallFlying": 0,
+  "PersistenceRequired": 0,
+  "LastGossipDecay": 1030408072,
+  "PortalCooldown": 0
+}

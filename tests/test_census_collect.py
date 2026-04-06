@@ -92,12 +92,15 @@ def test_get_player_position_not_found():
 # --- save_all ---
 
 def test_save_all_waits_for_confirmation():
-    """save_all sends marker + 'save-all', returns when log shows marker then 'Saved the game'."""
+    """save_all sends 'save-all' and returns when new log lines show 'Saved the game'."""
     sent = []
+    call_count = [0]
 
     def fake_run(cmd):
+        call_count[0] += 1
+        if "wc -l" in cmd:
+            return ["500"]
         return [
-            "[12:00:00] [Server thread/INFO]: [Server] SAVEALL_100",
             "[12:00:01] [Server thread/INFO]: Saved the game",
         ]
 
@@ -109,16 +112,16 @@ def test_save_all_waits_for_confirmation():
     ):
         save_all(timeout=30)
 
-    assert any("SAVEALL_100" in s for s in sent)
     assert "save-all" in sent
+    assert len(sent) == 1  # no more 'say' marker
 
 
 def test_save_all_timeout():
-    """save_all raises TimeoutError if 'Saved the game' never appears after marker."""
+    """save_all raises TimeoutError if 'Saved the game' never appears in new log lines."""
     def fake_run(cmd):
-        # Marker present but no "Saved the game" after it
+        if "wc -l" in cmd:
+            return ["500"]
         return [
-            "[12:00:00] [Server thread/INFO]: [Server] SAVEALL_200",
             "[12:00:01] Some other line",
         ]
 

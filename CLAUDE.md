@@ -15,7 +15,8 @@ census_seed.py         # Historical data seeder from server logs
 census_zones.py        # Zone geometry (rect/circle), classification
 zones.toml             # Zone definitions (places + named zones)
 skills/SKILL.md        # Claude Code skill definition
-tests/                 # 135 tests, all stdlib (no pip deps)
+tests/                 # ~150 tests, all stdlib (no pip deps)
+docs/                  # Investigation notes, specs, plans
 VillagerCensusEvents/  # PaperMC plugin — villager breed/death event logger (Java/Gradle)
 ```
 
@@ -49,12 +50,40 @@ All stdlib -- no pip dependencies except optional `lz4` for MC 1.20.5+ chunks.
 ## VPS Deployment
 
 - Census runs on cron at `/home/dev/minecraft-villager-census/` on the VPS
+- Frontend is at `/home/dev/minecraft-frontend/` on the VPS (service: `minecraft-frontend`)
 - SQLite DB served by nginx at `disqt.com/minecraft/villagers/census.db`
-- Frontend viewer lives in `disqt/minecraft-frontend` (Astro app at `disqt.com/minecraft/villagers/`)
+
+```bash
+# Deploy census changes
+scp census.py census_db.py census_collect.py dev:/home/dev/minecraft-villager-census/
+
+# Deploy frontend changes
+ssh dev 'cd /home/dev/minecraft-frontend && git pull && npx astro build'
+ssh dev 'sudo systemctl restart minecraft-frontend'
+```
+
+## RCON Access
+
+- Minecraft: `ssh dev '/usr/local/bin/rcon -c /home/dev/.config/rcon/rcon.yaml -e minecraft "<command>"'`
+- Config: `/home/dev/.config/rcon/rcon.yaml` (use full path, not `~`, in scripts)
+- Alias `rcon-mc` exists in dev's `.zshrc` but doesn't work in non-interactive SSH
+
+## Running Python on VPS
+
+- Complex scripts: write locally, `scp` to VPS, `ssh dev "cd /home/dev/minecraft-villager-census && python3 script.py"`
+- Inline Python via SSH breaks on nested quotes -- avoid for anything beyond one-liners
 
 ## Key APIs
 
 - SSH to `minecraft` server for entity data and POI files
-- tmux console for `save-all` and player list commands
+- tmux for `save-all` (log-based confirmation, no chat output)
+- RCON preferred for ad-hoc server commands (see RCON Access above)
 - Entity `.mca` files at `/home/minecraft/serverfiles/world_new/entities/`
 - POI `.mca` files at `/home/minecraft/serverfiles/world_new/poi/`
+- Plugin events at `/home/minecraft/serverfiles/plugins/VillagerCensusEvents/events.jsonl`
+
+## Active Investigation
+
+- See `docs/breeding-investigation.md` -- villagers breeding beyond bed cap
+- VillagerCensusEvents plugin captures breed/death events to `events.jsonl`
+- Plugin events are ingested into `villager_events` table each census run

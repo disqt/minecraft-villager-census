@@ -46,12 +46,9 @@ Events written as JSONL (one JSON object per line) to:
 
 ### File Rotation
 
-The census pipeline reads the events file each run and processes new entries. After successful ingestion:
-- Census renames `events.jsonl` to `events.jsonl.processed.{timestamp}`
-- Plugin detects missing file and creates a new one
-- Alternatively: plugin appends, census truncates after read (simpler but risks race condition)
+**Approach**: Plugin always appends to `events.jsonl`. Census reads the file, ingests all lines, then truncates it to zero bytes.
 
-**Recommended approach**: Plugin always appends to `events.jsonl`. Census reads the file, ingests all lines, then truncates it to zero bytes. File locking via `.lock` file to prevent race conditions.
+**No file locking needed.** The race window (plugin appends between census read and truncate) is negligible: census runs every 30 minutes, the read+truncate takes milliseconds, and villager events are rare (a few per day at most). If an event is written between read and truncate, it will be lost — acceptable given the census also detects births/deaths via UUID diff. The plugin events add *cause* detail, not the only detection mechanism.
 
 ### Plugin Structure
 
@@ -166,12 +163,20 @@ for event in events:
 
 ### Relationship to death cause tracking
 
-This plugin provides a **more precise** death cause than log parsing (spec: `2026-04-05-death-cause-tracking-design.md`). Once the plugin is active:
-- Plugin events are the primary source for death cause (exact enum, killer entity)
-- Log parsing serves as fallback for deaths that happened before the plugin was installed
-- Both feed into the same `death_cause` field on the `villagers` table
+This plugin provides a **more precise** death cause than log parsing (spec: `2026-04-05-death-cause-tracking-design.md`). The two systems serve different roles:
 
-The `mark_dead()` call should prefer plugin event cause over log-parsed cause when both are available.
+- **Plugin events** (`villager_events` table): primary source for death cause after plugin is installed. Provides exact `DamageCause` enum, killer entity type, and death message.
+- **Log parsing** (`death_cause` on `villagers` table): fallback for deaths that happened before the plugin was installed, or if the plugin is temporarily disabled.
+
+**Priority logic in the pipeline:**
+
+1. After detecting `deaths_uuids` (UUID diff), call `get_villager_events()` to read plugin events.
+2. For each dead UUID, check if there's a matching `death` event from the plugin (match by UUID).
+3. If found: use the plugin event's `cause` field for `mark_dead(death_cause=...)`.
+4. If not found: fall back to `get_recent_deaths()` log parsing (if death-cause-tracking is implemented).
+5. If neither: `death_cause` remains NULL (death detected but cause unknown).
+
+The `villager_events` table stores the full event record (both breeds and deaths). The `villagers.death_cause` column stores only the cause string for quick access.
 
 ## Build & Deploy
 

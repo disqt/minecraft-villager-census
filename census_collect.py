@@ -142,22 +142,16 @@ def save_all(timeout=30):
 
     Uses a unique marker to avoid matching stale log lines from previous saves.
     """
-    timestamp = int(time.time())
-    marker = f"SAVEALL_{timestamp}"
-    _send_tmux(f"say {marker}")
-    time.sleep(0.5)
+    # Grab the current log length so we only check new lines after save-all
+    before_lines = _run_command(f"wc -l < {LOG_PATH}")
+    line_count = int(before_lines[0].strip()) if before_lines else 0
     _send_tmux("save-all")
     start = time.time()
     while time.time() - start < timeout:
         time.sleep(2)
-        lines = _run_command(f"tail -n 50 {LOG_PATH}")
-        # Only look for "Saved the game" AFTER our marker
-        after_marker = False
+        lines = _run_command(f"tail -n +{line_count + 1} {LOG_PATH}")
         for line in lines:
-            if marker in line:
-                after_marker = True
-                continue
-            if after_marker and "Saved the game" in line:
+            if "Saved the game" in line:
                 return
     raise TimeoutError(f"save-all did not complete within {timeout}s")
 
