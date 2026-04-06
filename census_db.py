@@ -446,6 +446,32 @@ def mark_dead(conn, uuid, death_snapshot, death_cause=None):
     conn.commit()
 
 
+def mark_missing(conn, uuid, snapshot_id):
+    """Mark a villager as missing (disappeared without a death event)."""
+    conn.execute("""
+        UPDATE villagers
+        SET status = 'missing', missing_since = ?
+        WHERE uuid = ? AND status = 'alive'
+    """, (snapshot_id, uuid))
+    conn.commit()
+
+
+def mark_alive(conn, uuid):
+    """Mark a previously missing villager as alive again."""
+    conn.execute("""
+        UPDATE villagers
+        SET status = 'alive', missing_since = NULL
+        WHERE uuid = ? AND status = 'missing'
+    """, (uuid,))
+    conn.commit()
+
+
+def get_missing_uuids(conn):
+    """Return set of UUIDs currently in 'missing' status."""
+    cur = conn.execute("SELECT uuid FROM villagers WHERE status = 'missing'")
+    return {row['uuid'] for row in cur.fetchall()}
+
+
 def backfill_death_causes(conn, log_deaths):
     """Update dead villagers that have no death_cause with log-parsed messages.
 
