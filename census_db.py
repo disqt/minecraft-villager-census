@@ -434,15 +434,14 @@ def get_latest_snapshot(conn):
 
 
 def mark_dead(conn, uuid, death_snapshot, death_cause=None):
-    """Set presumed_dead=1 and record death_snapshot and optional death_cause."""
-    conn.execute(
-        """
+    """Mark a villager as confirmed dead."""
+    conn.execute("""
         UPDATE villagers
-        SET presumed_dead = 1, death_snapshot = ?, death_cause = ?
+        SET status = 'dead', presumed_dead = 1,
+            death_snapshot = ?, death_cause = ?,
+            missing_since = NULL
         WHERE uuid = ?
-        """,
-        (death_snapshot, death_cause, uuid),
-    )
+    """, (death_snapshot, death_cause, uuid))
     conn.commit()
 
 

@@ -547,3 +547,58 @@ def test_get_missing_uuids(tmp_path):
     conn.close()
 
 
+def test_mark_missing_only_affects_alive(tmp_path):
+    """mark_missing does not change status of a dead villager."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="dead-miss-1")
+    mark_dead(conn, "dead-miss-1", snap_id, death_cause="FALL")
+
+    mark_missing(conn, "dead-miss-1", snap_id)
+    v = get_villager(conn, "dead-miss-1")
+    assert v["status"] == "dead"
+    conn.close()
+
+
+def test_mark_alive_only_affects_missing(tmp_path):
+    """mark_alive does not change status of a dead villager."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="dead-alive-1")
+    mark_dead(conn, "dead-alive-1", snap_id, death_cause="FALL")
+
+    mark_alive(conn, "dead-alive-1")
+    v = get_villager(conn, "dead-alive-1")
+    assert v["status"] == "dead"
+    conn.close()
+
+
+def test_mark_dead_sets_status_dead(tmp_path):
+    """mark_dead sets status='dead' and missing_since=None."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="task3-dead-1")
+
+    mark_dead(conn, "task3-dead-1", snap_id)
+    v = get_villager(conn, "task3-dead-1")
+    assert v["status"] == "dead"
+    assert v["missing_since"] is None
+    conn.close()
+
+
+def test_mark_dead_clears_missing_since(tmp_path):
+    """mark_dead on a missing villager sets status='dead' and clears missing_since."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="task3-dead-2")
+    mark_missing(conn, "task3-dead-2", snap_id)
+
+    v = get_villager(conn, "task3-dead-2")
+    assert v["status"] == "missing"
+    assert v["missing_since"] == snap_id
+
+    mark_dead(conn, "task3-dead-2", snap_id, death_cause="FALL")
+    v = get_villager(conn, "task3-dead-2")
+    assert v["status"] == "dead"
+    assert v["missing_since"] is None
+    conn.close()
