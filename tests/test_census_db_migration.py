@@ -246,6 +246,97 @@ def test_migrate_adds_death_cause_column(tmp_path):
     conn.close()
 
 
+def test_migrate_adds_status_and_missing_since_columns(tmp_path):
+    """Opening an old DB without status/missing_since gets those columns added."""
+    db_path = tmp_path / "old_no_status.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE villagers (
+            uuid TEXT PRIMARY KEY,
+            first_seen_snapshot INTEGER,
+            last_seen_snapshot INTEGER,
+            spawn_reason TEXT,
+            origin_x REAL, origin_y REAL, origin_z REAL,
+            presumed_dead INTEGER DEFAULT 0,
+            death_snapshot INTEGER,
+            death_cause TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    conn = init_db(db_path)
+    cur = conn.execute("PRAGMA table_info(villagers)")
+    cols = {row[1] for row in cur.fetchall()}
+    assert "status" in cols
+    assert "missing_since" in cols
+    conn.close()
+
+
+def test_migrate_status_data_migration(tmp_path):
+    """Data migration sets status correctly for existing rows."""
+    db_path = tmp_path / "data_migration.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            players_online INTEGER NOT NULL DEFAULT 0,
+            area_center_x REAL NOT NULL DEFAULT 0,
+            area_center_z REAL NOT NULL DEFAULT 0,
+            scan_radius INTEGER NOT NULL DEFAULT 64,
+            villager_count INTEGER NOT NULL DEFAULT 0,
+            bed_count INTEGER NOT NULL DEFAULT 0,
+            notes TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE villagers (
+            uuid TEXT PRIMARY KEY,
+            first_seen_snapshot INTEGER,
+            last_seen_snapshot INTEGER,
+            spawn_reason TEXT,
+            origin_x REAL, origin_y REAL, origin_z REAL,
+            presumed_dead INTEGER DEFAULT 0,
+            death_snapshot INTEGER,
+            death_cause TEXT
+        )
+    """)
+    conn.execute("INSERT INTO snapshots (timestamp, players_online, villager_count, bed_count) VALUES ('2026-01-01T00:00:00Z', 1, 3, 0)")
+    # alive villager
+    conn.execute("INSERT INTO villagers (uuid, first_seen_snapshot, last_seen_snapshot, presumed_dead, death_cause) VALUES ('alive-1', 1, 1, 0, NULL)")
+    # dead with cause
+    conn.execute("INSERT INTO villagers (uuid, first_seen_snapshot, last_seen_snapshot, presumed_dead, death_cause) VALUES ('dead-1', 1, 1, 1, 'FALL')")
+    # dead without cause (missing)
+    conn.execute("INSERT INTO villagers (uuid, first_seen_snapshot, last_seen_snapshot, presumed_dead, death_cause) VALUES ('missing-1', 1, 1, 1, NULL)")
+    conn.commit()
+    conn.close()
+
+    conn = init_db(db_path)
+    alive = dict(conn.execute("SELECT * FROM villagers WHERE uuid = 'alive-1'").fetchone())
+    dead = dict(conn.execute("SELECT * FROM villagers WHERE uuid = 'dead-1'").fetchone())
+    missing = dict(conn.execute("SELECT * FROM villagers WHERE uuid = 'missing-1'").fetchone())
+
+    assert alive["status"] == "alive"
+    assert dead["status"] == "dead"
+    assert missing["status"] == "missing"
+    conn.close()
+
+
+def test_migrate_status_idempotent(tmp_path):
+    """Running init_db twice on a DB with status columns doesn't crash."""
+    db_path = tmp_path / "idempotent.db"
+    conn = init_db(db_path)
+    conn.close()
+
+    conn = init_db(db_path)
+    cur = conn.execute("PRAGMA table_info(villagers)")
+    cols = {row[1] for row in cur.fetchall()}
+    assert "status" in cols
+    assert "missing_since" in cols
+    conn.close()
+
+
 def test_new_rows_can_use_zone_after_migration():
     """After migration, new inserts can set the zone column."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:

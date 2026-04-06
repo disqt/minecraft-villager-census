@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import census
-from census_db import init_db, get_latest_snapshot, get_snapshot_villager_uuids
+from census_db import init_db, get_latest_snapshot, get_snapshot_villager_uuids, get_villager, get_missing_uuids
 from census_zones import make_single_zone
 
 
@@ -96,7 +96,7 @@ def test_run_census_end_to_end():
 
 
 def test_run_census_detects_deaths():
-    """Second run missing a previously seen villager marks it as dead."""
+    """Second run missing a previously seen villager marks it as missing (no death event)."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
 
@@ -105,14 +105,14 @@ def test_run_census_detects_deaths():
     assert summary1["deaths"] == 0
 
     summary2 = _run_with_mocks(db_path, villagers=[], beds=[])
-    assert summary2["deaths"] == 1
-    assert summary2["births"] == 0
+    assert summary2["deaths"] == 0
+    assert summary2["missing"] == 1
 
     conn = init_db(db_path)
-    cur = conn.execute("SELECT presumed_dead FROM villagers")
+    cur = conn.execute("SELECT status FROM villagers")
     rows = cur.fetchall()
     assert len(rows) == 1
-    assert rows[0]["presumed_dead"] == 1
+    assert rows[0]["status"] == "missing"
     conn.close()
 
 
@@ -310,3 +310,86 @@ def test_run_census_uses_plugin_death_cause():
                      (villager_uuid,)).fetchone()
     assert v["death_cause"] == "DROWNING"
     conn.close()
+
+
+def test_run_census_missing_without_death_event():
+    """Villager disappearing without a death event is marked missing, not dead."""
+    from census_parse import parse_entity_line
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    villager = parse_entity_line(SAMPLE_ENTITY_LINE)
+    villager_uuid = villager["uuid"]
+
+    _run_with_mocks(db_path, villagers=[villager])
+    _run_with_mocks(db_path, villagers=[], beds=[], plugin_events=[])
+
+    conn = init_db(db_path)
+    v = get_villager(conn, villager_uuid)
+    assert v["status"] == "missing"
+    assert v["missing_since"] is not None
+    conn.close()
+
+
+def test_run_census_dead_with_death_event():
+    """Villager disappearing WITH a death event is marked dead."""
+    from census_parse import parse_entity_line
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    villager = parse_entity_line(SAMPLE_ENTITY_LINE)
+    villager_uuid = villager["uuid"]
+
+    _run_with_mocks(db_path, villagers=[villager])
+
+    death_events = [
+        {"type": "death", "timestamp": "2026-04-06T12:00:00Z",
+         "uuid": villager_uuid, "cause": "DROWNING", "killer": None,
+         "x": 0, "y": 0, "z": 0, "ticks_lived": 1000, "message": "drowned"},
+    ]
+    _run_with_mocks(db_path, villagers=[], beds=[], plugin_events=death_events)
+
+    conn = init_db(db_path)
+    v = get_villager(conn, villager_uuid)
+    assert v["status"] == "dead"
+    assert v["death_cause"] == "DROWNING"
+    conn.close()
+
+
+def test_run_census_missing_villager_reappears():
+    """A missing villager that reappears gets status='alive' and missing_since=NULL."""
+    from census_parse import parse_entity_line
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    villager = parse_entity_line(SAMPLE_ENTITY_LINE)
+    villager_uuid = villager["uuid"]
+
+    _run_with_mocks(db_path, villagers=[villager])
+    _run_with_mocks(db_path, villagers=[], beds=[], plugin_events=[])
+
+    conn = init_db(db_path)
+    assert get_villager(conn, villager_uuid)["status"] == "missing"
+    conn.close()
+
+    _run_with_mocks(db_path, villagers=[villager])
+
+    conn = init_db(db_path)
+    v = get_villager(conn, villager_uuid)
+    assert v["status"] == "alive"
+    assert v["missing_since"] is None
+    conn.close()
+
+
+def test_run_census_summary_includes_missing():
+    """Summary dict includes missing count."""
+    from census_parse import parse_entity_line
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    villager = parse_entity_line(SAMPLE_ENTITY_LINE)
+    _run_with_mocks(db_path, villagers=[villager])
+
+    summary = _run_with_mocks(db_path, villagers=[], beds=[], plugin_events=[])
+    assert summary["missing"] == 1
+    assert summary["deaths"] == 0

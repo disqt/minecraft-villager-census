@@ -14,6 +14,9 @@ from census_db import (
     get_villager,
     get_latest_snapshot,
     mark_dead,
+    mark_missing,
+    mark_alive,
+    get_missing_uuids,
     get_snapshot_villager_uuids,
     get_all_snapshots,
     get_villager_history,
@@ -498,4 +501,104 @@ def test_backfill_death_causes_skips_already_filled(tmp_path):
 
     v = get_villager(conn, "dead-eeee")
     assert v["death_cause"] == "FALL"  # unchanged
+    conn.close()
+
+
+def test_mark_missing(tmp_path):
+    """mark_missing sets status='missing' and records missing_since."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="miss-1111")
+
+    mark_missing(conn, "miss-1111", snap_id)
+    v = get_villager(conn, "miss-1111")
+    assert v["status"] == "missing"
+    assert v["missing_since"] == snap_id
+    conn.close()
+
+
+def test_mark_alive(tmp_path):
+    """mark_alive sets status='alive' and clears missing_since."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="back-1111")
+    mark_missing(conn, "back-1111", snap_id)
+
+    mark_alive(conn, "back-1111")
+    v = get_villager(conn, "back-1111")
+    assert v["status"] == "alive"
+    assert v["missing_since"] is None
+    conn.close()
+
+
+def test_get_missing_uuids(tmp_path):
+    """get_missing_uuids returns only villagers with status='missing'."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="alive-x")
+    make_villager(conn, snap_id, uuid="missing-x")
+    make_villager(conn, snap_id, uuid="dead-x")
+
+    mark_missing(conn, "missing-x", snap_id)
+    mark_dead(conn, "dead-x", snap_id, death_cause="FALL")
+
+    result = get_missing_uuids(conn)
+    assert result == {"missing-x"}
+    conn.close()
+
+
+def test_mark_missing_only_affects_alive(tmp_path):
+    """mark_missing does not change status of a dead villager."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="dead-miss-1")
+    mark_dead(conn, "dead-miss-1", snap_id, death_cause="FALL")
+
+    mark_missing(conn, "dead-miss-1", snap_id)
+    v = get_villager(conn, "dead-miss-1")
+    assert v["status"] == "dead"
+    conn.close()
+
+
+def test_mark_alive_only_affects_missing(tmp_path):
+    """mark_alive does not change status of a dead villager."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="dead-alive-1")
+    mark_dead(conn, "dead-alive-1", snap_id, death_cause="FALL")
+
+    mark_alive(conn, "dead-alive-1")
+    v = get_villager(conn, "dead-alive-1")
+    assert v["status"] == "dead"
+    conn.close()
+
+
+def test_mark_dead_sets_status_dead(tmp_path):
+    """mark_dead sets status='dead' and missing_since=None."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="task3-dead-1")
+
+    mark_dead(conn, "task3-dead-1", snap_id)
+    v = get_villager(conn, "task3-dead-1")
+    assert v["status"] == "dead"
+    assert v["missing_since"] is None
+    conn.close()
+
+
+def test_mark_dead_clears_missing_since(tmp_path):
+    """mark_dead on a missing villager sets status='dead' and clears missing_since."""
+    conn = init_db(tmp_path / "test.db")
+    snap_id = make_snapshot(conn)
+    make_villager(conn, snap_id, uuid="task3-dead-2")
+    mark_missing(conn, "task3-dead-2", snap_id)
+
+    v = get_villager(conn, "task3-dead-2")
+    assert v["status"] == "missing"
+    assert v["missing_since"] == snap_id
+
+    mark_dead(conn, "task3-dead-2", snap_id, death_cause="FALL")
+    v = get_villager(conn, "task3-dead-2")
+    assert v["status"] == "dead"
+    assert v["missing_since"] is None
     conn.close()

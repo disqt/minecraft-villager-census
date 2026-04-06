@@ -21,6 +21,7 @@ from census_collect import (
 from census_db import (
     export_all_json,
     get_latest_snapshot,
+    get_missing_uuids,
     get_snapshot_villager_uuids,
     init_db,
     insert_bed,
@@ -33,7 +34,9 @@ from census_db import (
     insert_villager,
     insert_villager_event,
     insert_villager_state,
+    mark_alive,
     mark_dead,
+    mark_missing,
 )
 from census_entities import parse_entity_regions
 from census_poi import parse_poi_regions
@@ -274,9 +277,10 @@ def run_census(*, db_path, zones, poi_regions, notes=None, skipped_zones=None):
             zone=bell_zone,
         )
 
-    # Step 10: deaths and births
-    deaths_uuids = prev_uuids - current_uuids
+    # Step 10: detect disappeared, dead, and reappeared villagers
+    disappeared_uuids = prev_uuids - current_uuids
     births_uuids = current_uuids - prev_uuids
+    reappeared_uuids = current_uuids & get_missing_uuids(conn)
 
     # Step 10a: ingest plugin events
     plugin_events = get_villager_events()
@@ -314,9 +318,20 @@ def run_census(*, db_path, zones, poi_regions, notes=None, skipped_zones=None):
                 snapshot_id=snapshot_id,
             )
 
-    for uuid in deaths_uuids:
-        cause = death_causes.get(uuid)
-        mark_dead(conn, uuid, snapshot_id, death_cause=cause)
+    # Step 10b: classify disappearances as dead or missing
+    death_event_uuids = set(death_causes.keys())
+    confirmed_deaths = disappeared_uuids & death_event_uuids
+    newly_missing = disappeared_uuids - death_event_uuids
+
+    for uuid in confirmed_deaths:
+        mark_dead(conn, uuid, snapshot_id, death_cause=death_causes.get(uuid))
+
+    for uuid in newly_missing:
+        mark_missing(conn, uuid, snapshot_id)
+
+    # Step 10c: reappeared villagers (were missing, now back)
+    for uuid in reappeared_uuids:
+        mark_alive(conn, uuid)
 
     # Step 11: compute homeless count
     homeless = sum(
@@ -352,7 +367,8 @@ def run_census(*, db_path, zones, poi_regions, notes=None, skipped_zones=None):
         "bed_count": len(beds),
         "bell_count": len(bells),
         "births": len(births_uuids),
-        "deaths": len(deaths_uuids),
+        "deaths": len(confirmed_deaths),
+        "missing": len(newly_missing),
         "homeless": homeless,
         "players_online": players,
         "zones": zone_summary,
@@ -591,6 +607,7 @@ def main():
           f"**Bells:** {summary['bell_count']}  |  "
           f"**Births:** {summary['births']}  |  "
           f"**Deaths:** {summary['deaths']}  |  "
+          f"**Missing:** {summary['missing']}  |  "
           f"**Homeless:** {summary['homeless']}")
     if summary.get("zones"):
         print("\n| Zone | Villagers | Beds | Bells |")

@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS villagers (
     origin_z            REAL,
     presumed_dead       INTEGER NOT NULL DEFAULT 0,
     death_snapshot      INTEGER REFERENCES snapshots(id),
-    death_cause         TEXT
+    death_cause         TEXT,
+    status              TEXT    NOT NULL DEFAULT 'alive',
+    missing_since       INTEGER REFERENCES snapshots(id)
 );
 
 CREATE TABLE IF NOT EXISTS villager_states (
@@ -205,6 +207,14 @@ def _migrate(conn):
     cols = {row[1] for row in cur.fetchall()}
     if "death_cause" not in cols:
         conn.execute("ALTER TABLE villagers ADD COLUMN death_cause TEXT")
+
+    cur = conn.execute("PRAGMA table_info(villagers)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "status" not in cols:
+        conn.execute("ALTER TABLE villagers ADD COLUMN status TEXT NOT NULL DEFAULT 'alive'")
+        conn.execute("ALTER TABLE villagers ADD COLUMN missing_since INTEGER REFERENCES snapshots(id)")
+        conn.execute("UPDATE villagers SET status = 'dead' WHERE presumed_dead = 1 AND death_cause IS NOT NULL")
+        conn.execute("UPDATE villagers SET status = 'missing' WHERE presumed_dead = 1 AND death_cause IS NULL")
 
 
 # ---------------------------------------------------------------------------
@@ -424,16 +434,41 @@ def get_latest_snapshot(conn):
 
 
 def mark_dead(conn, uuid, death_snapshot, death_cause=None):
-    """Set presumed_dead=1 and record death_snapshot and optional death_cause."""
-    conn.execute(
-        """
+    """Mark a villager as confirmed dead."""
+    conn.execute("""
         UPDATE villagers
-        SET presumed_dead = 1, death_snapshot = ?, death_cause = ?
+        SET status = 'dead', presumed_dead = 1,
+            death_snapshot = ?, death_cause = ?,
+            missing_since = NULL
         WHERE uuid = ?
-        """,
-        (death_snapshot, death_cause, uuid),
-    )
+    """, (death_snapshot, death_cause, uuid))
     conn.commit()
+
+
+def mark_missing(conn, uuid, snapshot_id):
+    """Mark a villager as missing (disappeared without a death event)."""
+    conn.execute("""
+        UPDATE villagers
+        SET status = 'missing', missing_since = ?
+        WHERE uuid = ? AND status = 'alive'
+    """, (snapshot_id, uuid))
+    conn.commit()
+
+
+def mark_alive(conn, uuid):
+    """Mark a previously missing villager as alive again."""
+    conn.execute("""
+        UPDATE villagers
+        SET status = 'alive', missing_since = NULL
+        WHERE uuid = ? AND status = 'missing'
+    """, (uuid,))
+    conn.commit()
+
+
+def get_missing_uuids(conn):
+    """Return set of UUIDs currently in 'missing' status."""
+    cur = conn.execute("SELECT uuid FROM villagers WHERE status = 'missing'")
+    return {row['uuid'] for row in cur.fetchall()}
 
 
 def backfill_death_causes(conn, log_deaths):
@@ -444,7 +479,7 @@ def backfill_death_causes(conn, log_deaths):
     """
     cause_map = {d["uuid"]: d["message"] for d in log_deaths}
     cur = conn.execute(
-        "SELECT uuid FROM villagers WHERE presumed_dead = 1 AND death_cause IS NULL"
+        "SELECT uuid FROM villagers WHERE status = 'dead' AND death_cause IS NULL"
     )
     missing = [row["uuid"] for row in cur.fetchall()]
     updated = 0
