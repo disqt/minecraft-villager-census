@@ -479,7 +479,7 @@ def backfill_death_causes(conn, log_deaths):
     """
     cause_map = {d["uuid"]: d["message"] for d in log_deaths}
     cur = conn.execute(
-        "SELECT uuid FROM villagers WHERE presumed_dead = 1 AND death_cause IS NULL"
+        "SELECT uuid FROM villagers WHERE status = 'dead' AND death_cause IS NULL"
     )
     missing = [row["uuid"] for row in cur.fetchall()]
     updated = 0
