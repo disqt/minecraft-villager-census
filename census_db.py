@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS villagers (
     origin_z            REAL,
     presumed_dead       INTEGER NOT NULL DEFAULT 0,
     death_snapshot      INTEGER REFERENCES snapshots(id),
-    death_cause         TEXT
+    death_cause         TEXT,
+    status              TEXT    NOT NULL DEFAULT 'alive',
+    missing_since       INTEGER REFERENCES snapshots(id)
 );
 
 CREATE TABLE IF NOT EXISTS villager_states (
@@ -205,6 +207,14 @@ def _migrate(conn):
     cols = {row[1] for row in cur.fetchall()}
     if "death_cause" not in cols:
         conn.execute("ALTER TABLE villagers ADD COLUMN death_cause TEXT")
+
+    cur = conn.execute("PRAGMA table_info(villagers)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "status" not in cols:
+        conn.execute("ALTER TABLE villagers ADD COLUMN status TEXT NOT NULL DEFAULT 'alive'")
+        conn.execute("ALTER TABLE villagers ADD COLUMN missing_since INTEGER REFERENCES snapshots(id)")
+        conn.execute("UPDATE villagers SET status = 'dead' WHERE presumed_dead = 1 AND death_cause IS NOT NULL")
+        conn.execute("UPDATE villagers SET status = 'missing' WHERE presumed_dead = 1 AND death_cause IS NULL")
 
 
 # ---------------------------------------------------------------------------
