@@ -3,6 +3,13 @@ __pycache__/
 census.db
 .coverage
 /tmp/
+.investigation/
+
+# IDE artifacts
+VillagerCensusEvents/.classpath
+VillagerCensusEvents/.project
+VillagerCensusEvents/.settings/
+VillagerCensusEvents/bin/
 
 # Gradle build artifacts
 VillagerCensusEvents/build/
